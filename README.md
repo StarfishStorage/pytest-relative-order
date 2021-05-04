@@ -2,7 +2,7 @@
 a pytest plugin that sorts tests using "before" and "after" markers
 
 # Highlights
-consider `file.py`:
+Consider `file.py`:
 ```
 import pytest
 
