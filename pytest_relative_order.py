@@ -1,5 +1,8 @@
 import copy
 from collections import defaultdict, deque
+from typing import List, Dict
+
+from _pytest.nodes import Item
 
 
 def pytest_collection_modifyitems(session, config, items):
@@ -15,8 +18,8 @@ class OrderTestsPlugin:
     BEFORE = 'before'
 
     def __init__(self):
-        self.nodeid_to_item = {}
-        self.test_name_to_nodeids = defaultdict(list)
+        self.nodeid_to_items: Dict[str, List[Item]] = defaultdict(list)
+        self.test_name_to_nodeids = defaultdict(set)
 
     def pytest_configure(self, config):
         config.addinivalue_line('markers', f"{self.AFTER}(list): list of tests that precede given test")
@@ -39,11 +42,11 @@ class OrderTestsPlugin:
                 len(self.test_name_to_nodeids[test_marker]) <= 1
             ), f"ambiguous marker: {test_marker}! Possible choices are: {self.test_name_to_nodeids[test_marker]}"
             assert self.test_name_to_nodeids[test_marker], "https://xkcd.com/2200/"
-            return self.test_name_to_nodeids[test_marker][0]
+            return list(self.test_name_to_nodeids[test_marker])[0]
 
         # linear try
         candidate = None
-        for nodeid in self.nodeid_to_item.keys():
+        for nodeid in self.nodeid_to_items.keys():
             if nodeid.endswith(test_marker):
                 assert not candidate, f"ambiguous marker {test_marker}! Possible choices are: {[candidate, nodeid]}"
                 candidate = nodeid
@@ -54,9 +57,11 @@ class OrderTestsPlugin:
     def sort_DAG(self):
         edges = defaultdict(list)
         inverted_edges = defaultdict(list)
-        no_incoming = set(self.nodeid_to_item.keys())
+        no_incoming = set(self.nodeid_to_items.keys())
 
-        for nodeid, item in self.nodeid_to_item.items():
+        for nodeid, items in self.nodeid_to_items.items():
+
+            item = items[0]  # any of copies will do
 
             for predecessor in self.get_predecessors(item):
                 predecessor_nodeid = self.to_nodeid(predecessor)
@@ -89,12 +94,12 @@ class OrderTestsPlugin:
         for nodeid in edges.keys():
             assert not edges[nodeid], f"cycle detected! {edges}"
 
-        return [self.nodeid_to_item[order_id] for order_id in L]
+        return [item for items in [self.nodeid_to_items[order_id] for order_id in L] for item in items]
 
     def pytest_collection_modifyitems(self, session, config, items):
         for item in items:
-            self.nodeid_to_item[item.nodeid] = item
-            self.test_name_to_nodeids[item.name].append(item.nodeid)
+            self.nodeid_to_items[item.nodeid].append(item)
+            self.test_name_to_nodeids[item.name].add(item.nodeid)
 
         items[:] = self.sort_DAG()
 
